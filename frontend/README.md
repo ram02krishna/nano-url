@@ -65,4 +65,4 @@ The `src` directory is organized as follows:
 1. Import the `frontend` folder into a new Vercel project.
 2. The `vercel.json` file handles single-page application (SPA) routing, automatically preventing 404 errors on refresh.
 3. Add the following Environment Variable:
-   - `VITE_BACKEND_URL`: The URL of your deployed backend.
+   - `VITE_BACKEND_URL`: The full URL of your deployed backend, including `https://` and with no trailing slash (for example, `https://your-backend.vercel.app`). Redeploy the frontend after changing this variable.

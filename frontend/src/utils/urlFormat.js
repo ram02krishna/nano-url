@@ -1,14 +1,14 @@
-const getBase = () => {
-  let baseUrl = (import.meta.env.VITE_BACKEND_URL || "").replace(/\/+$/, "");
-  if (baseUrl && !baseUrl.startsWith("http")) baseUrl = `https://${baseUrl}`;
+export const getBackendUrl = () => {
+  let baseUrl = (import.meta.env.VITE_BACKEND_URL || "").trim().replace(/\/+$/, "");
+  if (baseUrl && !/^https?:\/\//i.test(baseUrl)) baseUrl = `https://${baseUrl}`;
   return baseUrl;
 };
 
-export const getShortUrl = (shortCode) => `${getBase()}/${shortCode}`;
+export const getShortUrl = (shortCode) => `${getBackendUrl()}/${shortCode}`;
 
 /** "nanourl.app" — host shown in front of a custom alias. */
 export const getShortHost = () => {
-  const base = getBase();
+  const base = getBackendUrl();
   try {
     return new URL(base || window.location.origin).host;
   } catch {
