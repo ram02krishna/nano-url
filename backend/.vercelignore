@@ -1,0 +1,12 @@
+# Exclude these from Vercel deployment uploads
+node_modules
+.env
+.env.*
+!.env.example
+Dockerfile
+docker-compose.yml
+drizzle/
+*.log
+.cache
+coverage/
+README.md

@@ -1,0 +1,17 @@
+import "dotenv/config";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
+
+if (!process.env.DATABASE_URL) {
+  throw new Error("DATABASE_URL is not defined in the environment variables");
+}
+
+const connectionString = process.env.DATABASE_URL;
+const isLocal = connectionString.includes("localhost") || connectionString.includes("127.0.0.1");
+
+const pool = new Pool({
+  connectionString,
+  ssl: isLocal ? false : { rejectUnauthorized: false },
+});
+
+export const db = drizzle(pool);

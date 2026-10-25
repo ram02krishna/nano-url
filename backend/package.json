@@ -1,0 +1,39 @@
+{
+  "name": "nanourl-backend",
+  "version": "1.0.0",
+  "description": "nanoURL backend",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "dev": "node --watch index",
+    "start": "node index.js",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.25.0",
+  "devDependencies": {
+    "@types/express": "~4.17.25",
+    "@types/node": "^25.0.1",
+    "@types/pg": "^8.16.0",
+    "drizzle-kit": "^0.31.9"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "drizzle-orm": "^0.45.1",
+    "express": "^5.2.1",
+    "express-rate-limit": "^7.1.5",
+    "jsonwebtoken": "^9.0.3",
+    "nanoid": "^5.1.6",
+    "pg": "^8.16.3",
+    "resend": "^4.0.0",
+    "ua-parser-js": "^2.0.9",
+    "zod": "^4.1.13"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "installCommand": "npm install -g pnpm && pnpm install",
+  "builds": [
+    {
+      "src": "index.js",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "db/**",
+          "middlewares/**",
+          "models/**",
+          "routes/**",
+          "services/**",
+          "utils/**",
+          "validation/**"
+        ]
+      }
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.js"
+    }
+  ]
+}
