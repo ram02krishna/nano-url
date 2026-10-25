@@ -84,7 +84,7 @@ const ForgotPassword = () => {
               type="submit"
               className="btn-primary btn w-full"
             >
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Send Reset Link"}
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Send reset code"}
             </button>
           </form>
         )}
@@ -102,7 +102,9 @@ const ForgotPassword = () => {
                 maxLength={6}
                 value={form.otp}
                 className="input tracking-widest text-center"
-                onChange={(e) => setForm({ ...form, otp: e.target.value })}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                onChange={(e) => setForm({ ...form, otp: e.target.value.replace(/\D/g, "").slice(0, 6) })}
               />
             </div>
 

@@ -1,194 +1,178 @@
 import express from "express";
-import { shortenPostRequestBodySchema } from "../validation/request.validation.js";
+import { z } from "zod";
+import { and, eq } from "drizzle-orm";
+import {
+  shortenPostRequestBodySchema,
+  updateUrlBodySchema,
+  analyticsQuerySchema,
+  aliasSchema,
+} from "../validation/request.validation.js";
 import { db } from "../db/index.js";
 import { urlsTable } from "../models/index.js";
 import { ensureAuthenticated } from "../middlewares/auth.middleware.js";
-import { and, eq } from "drizzle-orm";
-
-import { createShortUrl } from "../services/url.service.js";
-import { logClick } from "../services/click.service.js";
-import { getUrlAnalytics } from "../services/analytics.service.js";
-import { asyncHandler } from "../utils/asyncHandler.js";
 import { validate } from "../middlewares/validate.middleware.js";
+import { apiLimiter, createLimiter, aliasCheckLimiter } from "../middlewares/rateLimit.middleware.js";
+import {
+  createShortUrl,
+  listUserUrls,
+  updateUserUrl,
+  isAliasAvailable,
+  countFreeUses,
+  FREE_TIER_LIMIT,
+} from "../services/url.service.js";
+import { getUrlAnalytics, getUserOverview, getClicksCsv } from "../services/analytics.service.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
+import { HttpError } from "../utils/httpError.js";
 
 const router = express.Router();
 
+const uuidSchema = z.string().uuid();
+
+// Reject malformed ids early instead of letting Postgres throw a 500
+router.param("id", (req, res, next, id) => {
+  if (!uuidSchema.safeParse(id).success) {
+    return next(new HttpError(404, "URL not found"));
+  }
+  next();
+});
+
+async function getOwnedUrl(id, userId) {
+  const [url] = await db
+    .select({ id: urlsTable.id, shortCode: urlsTable.shortCode })
+    .from(urlsTable)
+    .where(and(eq(urlsTable.id, id), eq(urlsTable.userId, userId)));
+  if (!url) throw new HttpError(404, "URL not found");
+  return url;
+}
+
+/* ---------- Create ---------- */
+
 router.post(
   "/shorten-free",
+  createLimiter,
   validate(shortenPostRequestBodySchema),
-  asyncHandler(async function (req, res) {
-    const { url, code, deviceId, expiresAt, password } = req.body;
+  asyncHandler(async (req, res) => {
+    const { url, deviceId } = req.body;
     if (!deviceId) {
       return res.status(400).json({ error: "Device ID is required for free tier" });
     }
 
-    let resData = await createShortUrl({ url, code, deviceId, expiresAt, password });
+    const used = await countFreeUses(deviceId);
+    if (used >= FREE_TIER_LIMIT) {
+      return res.status(403).json({
+        error: `Free limit reached (${FREE_TIER_LIMIT} links). Create a free account to continue.`,
+        limitReached: true,
+      });
+    }
+
+    // Free tier: plain shortening only (no alias / password / expiry)
+    const link = await createShortUrl({ url, deviceId });
 
     return res.status(201).json({
-      id: resData.id,
-      shortCode: resData.shortCode,
-      targetURL: resData.targetURL,
-      hasPassword: resData.hasPassword,
+      id: link.id,
+      shortCode: link.shortCode,
+      targetURL: link.targetURL,
+      hasPassword: link.hasPassword,
+      remaining: Math.max(0, FREE_TIER_LIMIT - used - 1),
     });
   })
 );
 
 router.post(
   "/shorten",
+  createLimiter,
   ensureAuthenticated,
   validate(shortenPostRequestBodySchema),
-  asyncHandler(async function (req, res) {
-    const { url, code, expiresAt, password } = req.body;
-    let result = await createShortUrl({ url, code, userId: req.user.id, expiresAt, password });
-
-    return res.status(201).json({
-      id: result.id,
-      shortCode: result.shortCode,
-      targetURL: result.targetURL,
-      expiresAt: result.expiresAt,
-      hasPassword: result.hasPassword,
+  asyncHandler(async (req, res) => {
+    const { url, code, title, expiresAt, password, maxClicks } = req.body;
+    const link = await createShortUrl({
+      url, code, title, expiresAt, password, maxClicks, userId: req.user.id,
     });
+    return res.status(201).json(link);
+  })
+);
+
+/* ---------- Read ---------- */
+
+router.get(
+  "/codes",
+  apiLimiter,
+  ensureAuthenticated,
+  asyncHandler(async (req, res) => {
+    return res.json({ codes: await listUserUrls(req.user.id) });
   })
 );
 
 router.get(
-  "/codes",
+  "/stats",
+  apiLimiter,
   ensureAuthenticated,
-  asyncHandler(async function (req, res) {
-    const codes = await db
-      .select()
-      .from(urlsTable)
-      .where(eq(urlsTable.userId, req.user.id));
+  asyncHandler(async (req, res) => {
+    return res.json(await getUserOverview(req.user.id));
+  })
+);
 
-    const safeCodes = codes.map(code => {
-      const { password, ...rest } = code;
-      return {
-        ...rest,
-        hasPassword: !!password
-      };
-    });
-
-    return res.json({ codes: safeCodes });
+router.get(
+  "/check-alias/:code",
+  aliasCheckLimiter,
+  asyncHandler(async (req, res) => {
+    const parsed = aliasSchema.safeParse(req.params.code);
+    if (!parsed.success) {
+      return res.json({ available: false, reason: parsed.error.issues[0].message });
+    }
+    return res.json(await isAliasAvailable(parsed.data));
   })
 );
 
 router.get(
   "/:id/analytics",
+  apiLimiter,
   ensureAuthenticated,
-  asyncHandler(async function (req, res) {
-    const { id } = req.params;
+  validate(analyticsQuerySchema, "query"),
+  asyncHandler(async (req, res) => {
+    const url = await getOwnedUrl(req.params.id, req.user.id);
+    return res.json(await getUrlAnalytics(url.id, req.query.days));
+  })
+);
 
-    let [url] = await db
-      .select({ id: urlsTable.id })
-      .from(urlsTable)
-      .where(and(eq(urlsTable.id, id), eq(urlsTable.userId, req.user.id)));
+router.get(
+  "/:id/export",
+  apiLimiter,
+  ensureAuthenticated,
+  asyncHandler(async (req, res) => {
+    const url = await getOwnedUrl(req.params.id, req.user.id);
+    const csv = await getClicksCsv(url.id);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="clicks-${url.shortCode}.csv"`);
+    return res.send(csv);
+  })
+);
 
-    if (!url) {
-      return res.status(404).json({ error: "URL not found" });
-    }
+/* ---------- Update / Delete ---------- */
 
-    const analytics = await getUrlAnalytics(id);
-
-    return res.json(analytics);
+router.patch(
+  "/:id",
+  apiLimiter,
+  ensureAuthenticated,
+  validate(updateUrlBodySchema),
+  asyncHandler(async (req, res) => {
+    const link = await updateUserUrl(req.user.id, req.params.id, req.body);
+    return res.json(link);
   })
 );
 
 router.delete(
   "/:id",
+  apiLimiter,
   ensureAuthenticated,
-  asyncHandler(async function (req, res) {
-    const id = req.params.id;
-    await db
+  asyncHandler(async (req, res) => {
+    const deleted = await db
       .delete(urlsTable)
-      .where(and(eq(urlsTable.id, id), eq(urlsTable.userId, req.user.id)));
+      .where(and(eq(urlsTable.id, req.params.id), eq(urlsTable.userId, req.user.id)))
+      .returning({ id: urlsTable.id });
 
+    if (!deleted.length) throw new HttpError(404, "URL not found");
     return res.status(200).json({ deleted: true });
-  })
-);
-
-router.get(
-  "/:shortCode",
-  asyncHandler(async function (req, res) {
-    const code = req.params.shortCode;
-    const [result] = await db
-      .select({
-        id: urlsTable.id,
-        targetURL: urlsTable.targetURL,
-        expiresAt: urlsTable.expiresAt,
-        password: urlsTable.password
-      })
-      .from(urlsTable)
-      .where(eq(urlsTable.shortCode, code));
-
-    if (!result) {
-      return res.status(404).json({ error: "Short URL not found" });
-    }
-
-    if (result.expiresAt && new Date() > new Date(result.expiresAt)) {
-      return res.status(410).json({
-        error: "This link has expired and is no longer available.",
-      });
-    }
-
-    if (result.password) {
-      
-      const frontendUrl = process.env.CORS_ORIGIN
-        ? process.env.CORS_ORIGIN.split(',')[0].trim()
-        : "http://localhost:5173";
-      return res.redirect(`${frontendUrl}/p/${code}`);
-    }
-
-    let ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim()
-      ?? req.socket.remoteAddress
-      ?? "Unknown";
-    const ua = req.headers["user-agent"] ?? "";
-    await logClick({ urlId: result.id, ip, ua });
-
-    return res.redirect(result.targetURL);
-  })
-);
-
-router.post(
-  "/verify-password/:shortCode",
-  asyncHandler(async function (req, res) {
-    const code = req.params.shortCode;
-    const { password } = req.body;
-
-    const [result] = await db
-      .select({
-        id: urlsTable.id,
-        targetURL: urlsTable.targetURL,
-        expiresAt: urlsTable.expiresAt,
-        password: urlsTable.password
-      })
-      .from(urlsTable)
-      .where(eq(urlsTable.shortCode, code));
-
-    if (!result) {
-      return res.status(404).json({ error: "Short URL not found" });
-    }
-
-    if (result.expiresAt && new Date() > new Date(result.expiresAt)) {
-      return res.status(410).json({
-        error: "This link has expired and is no longer available.",
-      });
-    }
-
-    if (!result.password) {
-      return res.status(400).json({ error: "This link is not password protected" });
-    }
-
-    if (result.password !== password) {
-      return res.status(401).json({ error: "Incorrect password" });
-    }
-
-    const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim()
-      ?? req.socket.remoteAddress
-      ?? "Unknown";
-    const ua = req.headers["user-agent"] ?? "";
-    await logClick({ urlId: result.id, ip, ua });
-
-    return res.json({ targetURL: result.targetURL });
   })
 );
 

@@ -7,6 +7,7 @@ import NotFound from "../pages/NotFound";
 import ProtectedUrl from "../pages/ProtectedUrl";
 import ForgotPassword from "../pages/Auth/ForgotPassword";
 import Settings from "../pages/Settings";
+import LinkStatus from "../pages/LinkStatus";
 import { useAuth } from "../context/AuthContext";
 
 const AppRoutes = () => {
@@ -55,6 +56,7 @@ const AppRoutes = () => {
       />
 
       <Route path="/p/:shortCode" element={<ProtectedUrl />} />
+      <Route path="/status/:reason" element={<LinkStatus />} />
 
       <Route path="*" element={<NotFound />} />
     </Routes>

@@ -1,44 +1,37 @@
 const DEVICE_ID_KEY = "device_id";
 const FREE_USES_KEY = "free_uses";
+export const FREE_LIMIT = 3;
 
 function generateDeviceId() {
-  const navigator_info = window.navigator;
-  const screen_info = window.screen;
-  const uid = navigator_info.mimeTypes.length;
-  const uid2 = navigator_info.userAgent.toLowerCase();
-  const uid3 = navigator_info.plugins.length;
-  const uid4 = screen_info.height * screen_info.width;
-  const uid4_string = String(uid4);
-
-  let hash = uid + uid2 + uid3 + uid4_string;
-
-  return btoa(hash).substring(0, 20); 
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
 export function getOrCreateDeviceId() {
   let deviceId = localStorage.getItem(DEVICE_ID_KEY);
-
   if (!deviceId) {
-    deviceId = generateDeviceId() + "_" + Date.now();
+    deviceId = generateDeviceId();
     localStorage.setItem(DEVICE_ID_KEY, deviceId);
   }
-
   return deviceId;
 }
 
 function getFreeUsesCount() {
-  const count = localStorage.getItem(FREE_USES_KEY);
-  return count ? parseInt(count) : 0;
+  const count = parseInt(localStorage.getItem(FREE_USES_KEY) ?? "0", 10);
+  return Number.isNaN(count) ? 0 : count;
 }
 
 export function incrementFreeUses() {
-  const currentCount = getFreeUsesCount();
-  const newCount = currentCount + 1;
-  localStorage.setItem(FREE_USES_KEY, newCount.toString());
-  return newCount;
+  const next = getFreeUsesCount() + 1;
+  localStorage.setItem(FREE_USES_KEY, String(next));
+  return next;
+}
+
+/** Called when the server says the free quota is used up (keeps the UI in sync). */
+export function markFreeUsesExhausted() {
+  localStorage.setItem(FREE_USES_KEY, String(FREE_LIMIT));
 }
 
 export function getRemainingFreeUses() {
-  const count = getFreeUsesCount();
-  return Math.max(0, 3 - count);
+  return Math.max(0, FREE_LIMIT - getFreeUsesCount());
 }

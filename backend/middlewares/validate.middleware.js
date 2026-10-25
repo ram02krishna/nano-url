@@ -15,7 +15,17 @@ export const validate = (schema, source = "body") => {
                 throw error;
             }
 
-            req[source] = validationResult.data;
+            if (source === "body") {
+                req.body = validationResult.data;
+            } else {
+                // Express 5 exposes req.query / req.params as read-only getters
+                Object.defineProperty(req, source, {
+                    value: validationResult.data,
+                    writable: true,
+                    configurable: true,
+                    enumerable: true,
+                });
+            }
             next();
         } catch (error) {
             next(error);

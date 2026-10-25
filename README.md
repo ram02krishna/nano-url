@@ -16,6 +16,28 @@ nanoURL is a sleek, full-stack URL shortening platform built for speed, security
 - Adaptive Theming: Seamlessly switch between Light, Dark, and System modes for optimal readability.
 - High Performance: Powered by a PostgreSQL backend and Drizzle ORM for lightning-fast redirection and data retrieval.
 
+## What's New
+
+**Features**
+- **Custom aliases** with live availability check (`/summer-sale`), plus reserved-word protection.
+- **Click limits** (`maxClicks`) enforced atomically, and an **active/disabled toggle** to pause a link.
+- **Edit links**: change destination, title, expiry, click limit or password without changing the short URL.
+- **Link titles**, search, filters (active / protected / disabled) and sorting in the dashboard; CSV export of your links.
+- **Dashboard overview**: totals, 14-day traffic chart and top links.
+- **Richer analytics**: 7/30/90-day range, today / last-7-days stats, referrers, interactive chart and per-link CSV export.
+- **Friendly status pages** for expired / disabled / limit-reached / not-found links (API clients still get JSON).
+- **Resend OTP** with cooldown, password strength meter, profile + theme picker in Settings.
+- Free tier is now **enforced server-side** (3 links per device), not just in the browser.
+
+**Security & reliability**
+- Link passwords are now hashed (scrypt). Existing plain-text passwords are upgraded automatically on first successful unlock.
+- Only `http(s)` destinations are accepted (blocks `javascript:` / `data:` URLs).
+- Brute-force limiter on password-protected links; redirects are no longer throttled by the management-API limiter.
+- Redirects respond immediately and use edge geo headers (Vercel/Cloudflare) when available; geo lookups are cached.
+- JWTs now expire after 7 days; OTPs use `crypto.randomInt` and constant-time comparison; login no longer reveals whether an email exists.
+
+> **Upgrading an existing database:** the schema gained new columns (`title`, `is_active`, `max_clicks`, `click_count`, `last_clicked_at` on `urls`; `referrer` on `url_clicks`). Run `pnpm db:push` in `/backend` after pulling these changes. Existing rows keep working.
+
 ## Tech Stack
 
 | Category           | Tech Stacks                                    |
@@ -127,6 +149,17 @@ curl -X POST http://localhost:8000/shorten \
   }'
 ```
 
+**Update a link** (`PATCH /:id`, send `null` to clear a field):
+
+```bash
+curl -X PATCH http://localhost:8000/<url-id> \
+  -H "Authorization: Bearer <your-jwt-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com/new","isActive":true,"maxClicks":100,"password":null}'
+```
+
+**Other endpoints**: `GET /check-alias/:code`, `GET /stats`, `GET /:id/analytics?days=7|30|90`, `GET /:id/export` (CSV), `GET /user/me`, `POST /user/resend-otp`.
+
 **View URL Analytics**:
 
 ```bash
@@ -152,7 +185,7 @@ curl -X POST http://localhost:8000/user/verify-email \
 nanoURL uses a relational schema managed by Drizzle ORM:
 
 - **`users`**: Stores user profiles, hashed passwords, and verification status.
-- **`urls`**: Stores shortened links, target URLs, expiration dates, and optional password protection.
-- **`url_clicks`**: Stores detailed analytics for every click (IP, Browser, OS, Device, Timestamp).
+- **`urls`**: Stores shortened links, titles, target URLs, expiry, click limits, active flag, click counter, and optional hashed password.
+- **`url_clicks`**: Stores detailed analytics for every click (IP, location, Browser, OS, Device, Referrer, Timestamp).
 
 ---

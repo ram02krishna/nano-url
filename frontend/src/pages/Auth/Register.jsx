@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
-import { registerUser, verifyEmail } from "../../services/auth.service";
+import { registerUser, verifyEmail, resendOtp } from "../../services/auth.service";
+import PasswordStrength from "../../components/common/PasswordStrength";
 import { setToken } from "../../utils/token";
 import { useAuth } from "../../context/AuthContext";
 import { Link, useNavigate } from "react-router-dom";
@@ -15,6 +16,29 @@ const Register = () => {
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState(1);
   const [otp, setOtp] = useState("");
+  const [cooldown, setCooldown] = useState(0);
+
+  // Countdown for the "resend code" button
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const id = setTimeout(() => setCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(id);
+  }, [cooldown]);
+
+  const handleResend = async () => {
+    setLoading(true);
+    try {
+      await resendOtp({ email: form.email });
+      toast.success("A new code is on its way");
+      setCooldown(60);
+    } catch (err) {
+      const retry = err?.response?.data?.retryAfter;
+      if (retry) setCooldown(retry);
+      toast.error(err?.response?.data?.error || "Couldn't resend the code");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -23,6 +47,7 @@ const Register = () => {
     try {
       const res = await registerUser(form);
       toast.success(res.data?.message || "Check your email for the verification code");
+      setCooldown(60);
       setStep(2);
     } catch (err) {
       toast.error(err?.response?.data?.error || err?.response?.data?.message || "Registration failed");
@@ -128,6 +153,7 @@ const Register = () => {
                     {showPassword ? "Hide" : "Show"}
                   </button>
                 </div>
+                <PasswordStrength password={form.password} />
               </div>
 
               <div className="space-y-1.5">
@@ -172,13 +198,24 @@ const Register = () => {
                   disabled={loading}
                   className="input text-center tracking-widest text-xl font-mono"
                   value={otp}
-                  onChange={e => setOtp(e.target.value)}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  onChange={e => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
                   autoFocus
                 />
               </div>
 
               <button type="submit" disabled={loading || otp.length !== 6} className="btn-primary btn w-full">
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Verify email"}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleResend}
+                disabled={loading || cooldown > 0}
+                className="btn-secondary btn w-full text-sm"
+              >
+                {cooldown > 0 ? `Resend code in ${cooldown}s` : "Resend code"}
               </button>
 
               <button

@@ -95,6 +95,15 @@ const Navbar = () => {
               <Link to="/register" onClick={() => setMobileOpen(false)} className="btn-primary btn text-sm">Get started</Link>
             </div>
           ) : (
+            <>
+              <Link
+                to="/settings"
+                className="hidden sm:flex w-8 h-8 rounded-full bg-gradient-to-br from-accent-600 to-accent-400 text-white text-[11px] font-bold items-center justify-center shadow-sm hover:opacity-90 transition-opacity"
+                title={user?.email ?? "Account settings"}
+                aria-label="Account settings"
+              >
+                {((user?.firstname?.[0] ?? "") + (user?.lastname?.[0] ?? "")).toUpperCase() || "•"}
+              </Link>
             <button
               onClick={() => { logout(); navigate("/login"); }}
               className="hidden sm:flex btn-ghost btn text-sm text-zinc-600 dark:text-zinc-400"
@@ -103,6 +112,7 @@ const Navbar = () => {
               <LogOut className="w-4 h-4" />
               <span>Sign out</span>
             </button>
+            </>
           )}
 
           <button
@@ -124,6 +134,7 @@ const Navbar = () => {
               <Link
                 key={to}
                 to={to}
+                onClick={() => setMobileOpen(false)}
                 className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-accent-700 dark:text-accent-300 hover:bg-accent-100 dark:hover:bg-accent-900/30"
               >
                 <Icon className="w-4 h-4" />

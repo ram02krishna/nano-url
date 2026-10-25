@@ -1,8 +1,10 @@
 import express from "express";
+import { randomInt, timingSafeEqual } from "crypto";
 import {
   signupPostRequestBodySchema,
   loginPostRequestBodySchema,
   forgotPasswordSchema,
+  resendOtpSchema,
   resetPasswordSchema,
   changePasswordSchema,
 } from "../validation/request.validation.js";
@@ -20,6 +22,19 @@ import { validate } from "../middlewares/validate.middleware.js";
 
 const router = express.Router();
 
+const OTP_TTL_MS = 5 * 60 * 1000;
+const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
+
+const generateOtp = () => randomInt(100000, 1000000).toString();
+
+// Constant-time OTP comparison
+const otpMatches = (stored, provided) => {
+  if (!stored || typeof provided !== "string") return false;
+  const a = Buffer.from(stored);
+  const b = Buffer.from(provided);
+  return a.length === b.length && timingSafeEqual(a, b);
+};
+
 router.post(
   "/signup",
   validate(signupPostRequestBodySchema),
@@ -36,8 +51,8 @@ router.post(
 
     let { salt, password: hash } = hashPasswordWithSalt(password);
 
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const otpExpiry = new Date(Date.now() + 5 * 60 * 1000); 
+    const otp = generateOtp();
+    const otpExpiry = new Date(Date.now() + OTP_TTL_MS);
 
     const user = await createNewUser({
       firstname,
@@ -75,10 +90,7 @@ router.post(
     let user = await getUserByEmail(email);
 
     if (!user) {
-      
-      return res.status(400).json({
-        error: `User with email ${email} does not exist`,
-      });
+      return res.status(400).json({ error: "Invalid email or password" });
     }
 
     if (!user.isVerified) {
@@ -93,9 +105,7 @@ router.post(
     );
 
     if (user.password !== hash) {
-      return res.status(400).json({
-        error: "Invalid Password",
-      });
+      return res.status(400).json({ error: "Invalid email or password" });
     }
 
     let token = await createUserToken({ id: user.id });
@@ -123,7 +133,7 @@ router.post(
       return res.status(400).json({ error: "User already verified" });
     }
 
-    if (user.otp !== otp) {
+    if (!otpMatches(user.otp, otp)) {
       return res.status(400).json({ error: "Invalid OTP" });
     }
 
@@ -150,6 +160,50 @@ router.post(
 );
 
 router.post(
+  "/resend-otp",
+  validate(resendOtpSchema),
+  asyncHandler(async (req, res) => {
+    const { email } = req.body;
+    const user = await getUserByEmail(email);
+    const generic = { message: "If that account is awaiting verification, a new code has been sent." };
+
+    // Don't reveal whether the account exists / is already verified
+    if (!user || user.isVerified) return res.status(200).json(generic);
+
+    // Cooldown: the current OTP was issued at (otpExpiry - OTP_TTL_MS)
+    const issuedAt = user.otpExpiry ? new Date(user.otpExpiry).getTime() - OTP_TTL_MS : 0;
+    const waitMs = issuedAt + OTP_RESEND_COOLDOWN_MS - Date.now();
+    if (waitMs > 0) {
+      return res.status(429).json({
+        error: `Please wait ${Math.ceil(waitMs / 1000)}s before requesting a new code.`,
+        retryAfter: Math.ceil(waitMs / 1000),
+      });
+    }
+
+    const otp = generateOtp();
+    await db
+      .update(usersTable)
+      .set({ otp, otpExpiry: new Date(Date.now() + OTP_TTL_MS) })
+      .where(eq(usersTable.id, user.id));
+
+    const emailSent = await sendOTPEmail(email, otp);
+    if (!emailSent) {
+      return res.status(500).json({ error: "The verification email could not be sent. Please try again later." });
+    }
+    return res.status(200).json(generic);
+  })
+);
+
+router.get(
+  "/me",
+  ensureAuthenticated,
+  asyncHandler(async (req, res) => {
+    const { id, firstname, lastname, email } = req.user;
+    return res.json({ id, firstname, lastname, email });
+  })
+);
+
+router.post(
   "/forgot-password",
   validate(forgotPasswordSchema),
   asyncHandler(async (req, res) => {
@@ -161,8 +215,8 @@ router.post(
       return res.status(200).json({ message: "If that email is registered, you will receive a reset OTP shortly." });
     }
 
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const otpExpiry = new Date(Date.now() + 5 * 60 * 1000); 
+    const otp = generateOtp();
+    const otpExpiry = new Date(Date.now() + OTP_TTL_MS);
 
     await db
       .update(usersTable)
@@ -195,7 +249,7 @@ router.post(
       return res.status(400).json({ error: "Invalid request." });
     }
 
-    if (user.otp !== otp) {
+    if (!otpMatches(user.otp, otp)) {
       return res.status(400).json({ error: "Invalid OTP." });
     }
 

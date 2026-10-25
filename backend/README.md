@@ -12,6 +12,18 @@ The nanoURL Backend is a high-performance, scalable API engine that powers the n
 - ** Zod Schema Validation**: Centralized request validation to ensure strict data consistency and security.
 - ** Serverless Optimized**: Fully pre-configured for instant, global deployment on Vercel.
 
+## Run Locally
+
+From the `backend` directory, install dependencies, apply the database schema, and start the development server:
+
+```bash
+pnpm install
+pnpm db:push
+pnpm run dev
+```
+
+Make sure PostgreSQL is running and `DATABASE_URL` and `JWT_SECRET` are configured in your `.env` file before starting the server.
+
 ## API Endpoints
 
 ### Authentication (`/user`)
